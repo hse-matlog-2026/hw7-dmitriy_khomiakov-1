@@ -12,6 +12,8 @@ from logic_utils import frozen, frozendict
 
 from predicates.syntax import *
 
+from itertools import product
+
 #: A generic type for a universe element in a model.
 T = TypeVar('T')
 
@@ -146,6 +148,14 @@ class Model(Generic[T]):
         for function,arity in term.functions():
             assert function in self.function_interpretations and \
                    self.function_arities[function] == arity
+            
+        if is_constant(term.root):
+            return self.constant_interpretations[term.root]
+        if is_variable(term.root):
+            return assignment[term.root]
+        args = tuple(self.evaluate_term(argument, assignment) for argument in term.arguments)
+        return self.function_interpretations[term.root][args]
+
         # Task 7.7
 
     def evaluate_formula(self, formula: Formula,
@@ -175,6 +185,36 @@ class Model(Generic[T]):
         for relation,arity in formula.relations():
             assert relation in self.relation_interpretations and \
                    self.relation_arities[relation] in {-1, arity}
+            
+        if is_equality(formula.root):
+            return self.evaluate_term(formula.arguments[0], assignment) == self.evaluate_term(formula.arguments[1], assignment)
+        if is_relation(formula.root):
+            args = tuple(self.evaluate_term(argument, assignment) for argument in formula.arguments)
+            return args in self.relation_interpretations[formula.root]
+        if is_unary(formula.root):
+            return not self.evaluate_formula(formula.first, assignment)
+        if is_binary(formula.root):
+            first = self.evaluate_formula(formula.first, assignment)
+            second = self.evaluate_formula(formula.second, assignment)
+            if formula.root == '&':
+                return first and second
+            if formula.root == '|':
+                return first or second
+            return (not first) or second
+        if formula.root == 'A':
+            for value in self.universe:
+                extended_assignment = dict(assignment)
+                extended_assignment[formula.variable] = value
+                if not self.evaluate_formula(formula.statement, frozendict(extended_assignment)):
+                    return False
+            return True
+        for value in self.universe:
+            extended_assignment = dict(assignment)
+            extended_assignment[formula.variable] = value
+            if self.evaluate_formula(formula.statement, frozendict(extended_assignment)):
+                return True
+        return False
+
         # Task 7.8
 
     def is_model_of(self, formulas: AbstractSet[Formula]) -> bool:
@@ -199,4 +239,13 @@ class Model(Generic[T]):
             for relation,arity in formula.relations():
                 assert relation in self.relation_interpretations and \
                        self.relation_arities[relation] in {-1, arity}
+                
+        for formula in formulas:
+            vars = sorted(formula.free_variables())
+            for values in product(self.universe, repeat=len(vars)):
+                assignment = frozendict(dict(zip(vars, values)))
+                if not self.evaluate_formula(formula, assignment):
+                    return False
+        return True
+
         # Task 7.9
